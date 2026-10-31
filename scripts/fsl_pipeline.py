@@ -109,7 +109,7 @@ def process(src_file, out_dir, mni):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src", required=True, help="folder with *_T2w_*.nii.gz HCP files (searched recursively)")
+    ap.add_argument("--src", required=True, help="folder with HCP T2 .nii or .nii.gz files (searched recursively; Kaggle may unpack .gz uploads)")
     ap.add_argument("--dst", required=True)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--mni", default=None, help="default: $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz (no T2 template ships with conda FSL)")
@@ -118,9 +118,9 @@ def main():
     mni = Path(args.mni or Path(os.environ["FSLDIR"]) / "data" / "standard" / "MNI152_T1_1mm_brain.nii.gz")
     if not mni.exists():
         sys.exit(f"MNI template not found: {mni}")
-    files = sorted(Path(args.src).rglob("*.nii.gz"))[: args.limit]
+    files = sorted(f for f in Path(args.src).rglob("*") if f.name.endswith((".nii", ".nii.gz")))[: args.limit]
     if not files:
-        sys.exit(f"no .nii.gz files under {args.src}")
+        sys.exit(f"no .nii / .nii.gz files under {args.src}")
     rows = []
     for f in files:
         print("processing", f.name, flush=True)
