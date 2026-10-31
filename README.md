@@ -51,5 +51,5 @@ output (`qc.png`), then updated here. Checked by `tests/test_labels.py`.
 
 ## Preprocessing
 `data/preprocess.py`: reorient to RAS (HCP is LAS, BraTS is LPS) -> 1 mm isotropic -> affine
-registration to MNI152 (FSL FLIRT) -> intensity scaled to [0, 1]. The FSL part runs on Kaggle via
+registration to MNI152 1 mm (FSL FLIRT, T1 template + mutual information, since conda FSL has no T2 template) -> intensity scaled to [0, 1]. The FSL part runs on Kaggle via
 `notebooks/01_fsl_fast_hcp.ipynb` and `scripts/fsl_pipeline.py`.

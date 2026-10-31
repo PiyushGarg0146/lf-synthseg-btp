@@ -3,7 +3,7 @@
 Order of operations (same for HCP training scans and BraTS test scans):
   1. reorient_ras      - fixes the HCP (LAS) vs BraTS (LPS) axis mismatch
   2. resample_iso      - 1 mm isotropic voxels
-  3. register_flirt    - affine (12 dof) registration to MNI152 T2 1 mm brain (needs FSL; run on Linux/Kaggle)
+  3. register_flirt    - affine (12 dof) registration to the MNI152 1 mm brain (T1 template, mutual-information cost) (needs FSL; run on Linux/Kaggle)
   4. normalize_intensity - clip at a high brain percentile, scale to [0, 1]; background stays 0
 
 Steps 1, 2 and 4 are plain Python and run anywhere. Step 3 calls FSL's `flirt`.
@@ -64,10 +64,14 @@ def _need_fsl(tool):
     return exe
 
 
-def register_flirt(moving, reference, out_img, out_mat, dof=12):
-    """Affine-register `moving` to `reference` (MNI152 T2 1 mm brain). Saves image and matrix."""
+def register_flirt(moving, reference, out_img, out_mat, dof=12, cost="normmi"):
+    """Affine-register `moving` to `reference` (MNI152 1 mm brain). Saves image and matrix.
+
+    The conda FSL package ships only the T1 MNI template, so a T2 scan is matched to it with a
+    multi-modal cost (normalized mutual information) instead of the default correlation ratio.
+    """
     subprocess.run([_need_fsl("flirt"), "-in", str(moving), "-ref", str(reference), "-out", str(out_img),
-                    "-omat", str(out_mat), "-dof", str(dof), "-interp", "spline"], check=True)
+                    "-omat", str(out_mat), "-dof", str(dof), "-cost", cost, "-interp", "spline"], check=True)
 
 
 def apply_flirt(moving, reference, mat, out_img, nearest=False):

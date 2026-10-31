@@ -112,10 +112,10 @@ def main():
     ap.add_argument("--src", required=True, help="folder with *_T2w_*.nii.gz HCP files (searched recursively)")
     ap.add_argument("--dst", required=True)
     ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--mni", default=None, help="default: $FSLDIR/data/standard/MNI152_T2_1mm_brain.nii.gz")
+    ap.add_argument("--mni", default=None, help="default: $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz (no T2 template ships with conda FSL)")
     args = ap.parse_args()
 
-    mni = Path(args.mni or Path(os.environ["FSLDIR"]) / "data" / "standard" / "MNI152_T2_1mm_brain.nii.gz")
+    mni = Path(args.mni or Path(os.environ["FSLDIR"]) / "data" / "standard" / "MNI152_T1_1mm_brain.nii.gz")
     if not mni.exists():
         sys.exit(f"MNI template not found: {mni}")
     files = sorted(Path(args.src).rglob("*.nii.gz"))[: args.limit]
