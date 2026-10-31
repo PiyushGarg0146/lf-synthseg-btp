@@ -24,3 +24,6 @@ outputs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local machine paths (copy configs/paths.example.yaml to configs/paths.yaml)
+configs/paths.yaml

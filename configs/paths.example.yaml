@@ -1,0 +1,6 @@
+# Copy to configs/paths.yaml and edit. paths.yaml is git-ignored, so each
+# teammate can point to wherever the data lives on their own machine.
+hcp_raw: "C:/Users/lenovo/Documents/btp data/hcp_raw"
+hcp_processed: "C:/Users/lenovo/Documents/btp data/hcp_processed"
+brats2020_zip: "C:/Users/lenovo/Downloads/brats 2020 dataset.zip"
+brats2020_test: "C:/Users/lenovo/Documents/btp data/brats2020_test"
