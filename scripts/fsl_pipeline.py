@@ -115,7 +115,12 @@ def process(src_file, out_dir, mni, dark_frac=L.DARK_FRAC):
 
     seg = np.asarray(nib.load(str(run_fast(masked, work / "fast"))).dataobj).astype(np.int16)
     seg[~mask] = 0
+    ids = sorted(set(np.unique(seg).tolist()) - {0})
+    print(f"{sid} DEBUG FAST class id -> (share of brain, mean raw T2): "
+          + str({i: (round(float((seg == i).sum() / mask.sum()), 3), round(float(data[seg == i].mean()), 1)) for i in ids}), flush=True)
     labels = fill_unlabeled(L.fast3_by_intensity(seg, data), mask)
+    print(f"{sid} DEBUG after ranking, label -> (share of brain, mean raw T2): "
+          + str({k: (round(float((labels == k).sum() / mask.sum()), 3), round(float(data[labels == k].mean()), 1)) for k in (L.CSF, L.GM, L.WM)}), flush=True)
     labels = L.add_dark_class(labels, data, mask, dark_frac)
     L.check_label_map(labels, mask)
 
