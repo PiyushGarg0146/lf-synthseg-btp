@@ -38,12 +38,13 @@ Label maps use ids 0-5 (`data/labels.py`):
 | 1 | CSF | FSL FAST class 1 (brightest on T2) |
 | 2 | GM | FAST class 2 |
 | 3 | WM | FAST class 3 |
-| 4 | "non-brain dark matter" | FAST class 4 (darkest) |
+| 4 | "non-brain dark matter" | our rule: brain voxels with T2 < 0.5 x median WM T2 (`add_dark_class`) |
 | 5 | tumor | added by the synthesizer |
 
-With `-t 2` FAST orders classes from brightest to darkest (mean T2 of classes 1-4 on subject 100206: 0.64, 0.44, 0.31, 0.09). FAST is run as `fast -n 4 -t 2` on the skull-stripped, MNI-registered T2. The paper does not define
-class 4 precisely; **this mapping is a working assumption to be confirmed by eye** on the first FAST
-output (`qc.png`), then updated here. Checked by `tests/test_labels.py`.
+FAST is run as `fast -n 3 -t 2` on the skull-stripped, MNI-registered T2; with `-t 2` it numbers classes
+from brightest to darkest. The paper does not define class 4. A 4-class FAST run was tried first and was
+unstable across subjects (mean T2 of its 4th class 0.08-0.24; up to 20% bright voxels, e.g. ventricle fluid),
+so class 4 is defined by the fixed rule above. The fraction (0.5) is a tunable choice (`--dark-frac`).
 
 ## Test split
 `configs/test_split_brats2020.txt` holds the 31 frozen BraTS 2020 test cases (seed 42, drawn from the

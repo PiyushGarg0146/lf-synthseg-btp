@@ -1,7 +1,9 @@
 """Label definitions for the 5-class LF-SynthSeg target.
 
-WORKING DEFINITION (to be confirmed visually on the first FAST outputs):
-FSL FAST is run with 4 classes on the skull-stripped T2 image (`fast -n 4 -t 2`).
+WORKING DEFINITION (the paper does not define class 4 precisely):
+FSL FAST is run with 3 classes on the skull-stripped T2 image (`fast -n 3 -t 2`) giving CSF/GM/WM.
+FAST with 4 classes was tried first, but its 4th class was unstable across subjects (mean T2 0.08-0.24,
+up to 20% bright voxels), so "dark" is instead defined by a fixed rule, see `add_dark_class`.
 With `-t 2` FAST numbers classes from BRIGHTEST to darkest (verified on HCP subject 100206:
 mean T2 of FAST classes 1-4 = 0.64, 0.44, 0.31, 0.09), i.e. CSF -> GM -> WM -> dark.
 So FAST ids coincide with the project ids; the explicit map below documents it.
@@ -47,3 +49,22 @@ def check_label_map(labels, brain_mask):
     assert (labels[brain_mask] >= 1).all(), "unlabelled voxels inside the brain mask"
     assert (labels[~brain_mask] == 0).all(), "labelled voxels outside the brain mask"
     return True
+
+
+DARK_FRAC = 0.5  # "dark" = brain voxels below this fraction of the subject's median white-matter T2
+
+
+def add_dark_class(labels, t2, mask, frac=DARK_FRAC):
+    """Relabel brain-mask voxels darker than `frac` x (median T2 of WM) as DARK.
+
+    Same rule in every subject, so the class does not depend on how FAST happens to cluster.
+    """
+    labels = np.asarray(labels).copy()
+    t2 = np.asarray(t2)
+    mask = np.asarray(mask).astype(bool)
+    wm = labels == WM
+    if not wm.any():
+        raise ValueError("no WM voxels to calibrate the dark threshold")
+    thr = frac * float(np.median(t2[wm]))
+    labels[mask & (t2 < thr)] = DARK
+    return labels

@@ -40,3 +40,26 @@ def test_label_outside_brain_or_invalid_id_fails():
     lab[1, 1, 1] = L.TUMOR
     with pytest.raises(AssertionError, match="invalid ids"):
         L.check_label_map(lab, brain)
+
+
+def test_add_dark_class_uses_wm_relative_threshold():
+    mask = np.ones((4, 4, 4), bool)
+    lab = np.full((4, 4, 4), L.WM, np.uint8)
+    lab[0] = L.CSF
+    t2 = np.full((4, 4, 4), 0.3, np.float32)   # WM median 0.3 -> threshold 0.15
+    t2[0] = 0.9
+    t2[3, 3, 3] = 0.10                           # dark voxel
+    t2[3, 3, 2] = 0.20                           # above threshold, stays WM
+    out = L.add_dark_class(lab, t2, mask)
+    assert out[3, 3, 3] == L.DARK and out[3, 3, 2] == L.WM and (out[0] == L.CSF).all()
+    assert (out == L.DARK).sum() == 1
+    assert L.check_label_map(out, mask)
+
+
+def test_add_dark_class_ignores_outside_mask_and_needs_wm():
+    mask = np.zeros((4, 4, 4), bool); mask[1:3, 1:3, 1:3] = True
+    lab = np.zeros((4, 4, 4), np.uint8); lab[mask] = L.WM
+    t2 = np.zeros((4, 4, 4), np.float32); t2[mask] = 0.3
+    assert (L.add_dark_class(lab, t2, mask) == lab).all()      # nothing dark; outside stays 0
+    with pytest.raises(ValueError):
+        L.add_dark_class(np.zeros((4, 4, 4), np.uint8), t2, mask)
