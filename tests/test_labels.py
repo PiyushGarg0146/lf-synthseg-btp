@@ -52,24 +52,37 @@ def test_label_outside_brain_or_invalid_id_fails():
         L.check_label_map(lab, brain)
 
 
-def test_add_dark_class_uses_wm_relative_threshold():
+def test_dark_voxels_use_median_brain_threshold():
     mask = np.ones((4, 4, 4), bool)
-    lab = np.full((4, 4, 4), L.WM, np.uint8)
-    lab[0] = L.CSF
-    t2 = np.full((4, 4, 4), 0.3, np.float32)   # WM median 0.3 -> threshold 0.15
-    t2[0] = 0.9
-    t2[3, 3, 3] = 0.10                           # dark voxel
-    t2[3, 3, 2] = 0.20                           # above threshold, stays WM
-    out = L.add_dark_class(lab, t2, mask)
-    assert out[3, 3, 3] == L.DARK and out[3, 3, 2] == L.WM and (out[0] == L.CSF).all()
-    assert (out == L.DARK).sum() == 1
-    assert L.check_label_map(out, mask)
+    t2 = np.full((4, 4, 4), 0.3, np.float32)    # brain median 0.3 -> threshold 0.4 * 0.3 = 0.12
+    t2[3, 3, 3] = 0.10                           # dark
+    t2[3, 3, 2] = 0.20                           # above threshold
+    d = L.dark_voxels(t2, mask)
+    assert d[3, 3, 3] and not d[3, 3, 2] and d.sum() == 1
 
 
-def test_add_dark_class_ignores_outside_mask_and_needs_wm():
+def test_add_dark_class_ignores_outside_mask():
     mask = np.zeros((4, 4, 4), bool); mask[1:3, 1:3, 1:3] = True
     lab = np.zeros((4, 4, 4), np.uint8); lab[mask] = L.WM
     t2 = np.zeros((4, 4, 4), np.float32); t2[mask] = 0.3
-    assert (L.add_dark_class(lab, t2, mask) == lab).all()      # nothing dark; outside stays 0
+    t2[1, 1, 1] = 0.01
+    out = L.add_dark_class(lab, t2, mask)
+    assert out[1, 1, 1] == L.DARK and (out[~mask] == 0).all()
+    assert L.check_label_map(out, mask)
     with pytest.raises(ValueError):
-        L.add_dark_class(np.zeros((4, 4, 4), np.uint8), t2, mask)
+        L.dark_voxels(t2, np.zeros_like(mask))
+
+
+def test_ranking_fails_with_dark_contamination_but_works_with_ignore():
+    """Real pattern seen on HCP T2: FAST id 3 = bright CSF + dark edge voxels, so its mean is below GM's."""
+    n = 1000
+    seg = np.zeros(n, int); t2 = np.zeros(n, float)
+    seg[:430], t2[:430] = 1, 390.0          # GM-like: 43%, bright-ish
+    seg[430:850], t2[430:850] = 2, 260.0    # WM-like: 42%
+    seg[850:920], t2[850:920] = 3, 600.0    # true CSF: 7%
+    seg[920:970], t2[920:970] = 3, 30.0     # dark edge voxels lumped into class 3
+    dark = t2 < 100
+    naive = L.fast3_by_intensity(seg[None, None], t2[None, None])[0, 0]
+    assert naive[860] == L.GM                # wrong: CSF ranked below GM because of the dark voxels
+    fixed = L.fast3_by_intensity(seg[None, None], t2[None, None], ignore=dark[None, None])[0, 0]
+    assert fixed[860] == L.CSF and fixed[10] == L.GM and fixed[500] == L.WM

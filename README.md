@@ -35,17 +35,18 @@ Label maps use ids 0-5 (`data/labels.py`):
 | id | class | source |
 |---|---|---|
 | 0 | background (outside brain mask) | |
-| 1 | CSF | brightest of FAST's 3 classes (per subject) |
+| 1 | CSF | brightest of FAST's 3 classes (per subject, dark voxels excluded from the ranking) |
 | 2 | GM | middle FAST class |
 | 3 | WM | darkest FAST class |
-| 4 | "non-brain dark matter" | our rule: brain voxels with T2 < 0.5 x median WM T2 (`add_dark_class`) |
+| 4 | "non-brain dark matter" | our rule: brain voxels with T2 < 0.4 x median brain T2 (`dark_voxels`) |
 | 5 | tumor | added by the synthesizer |
 
-FAST is run as `fast -n 3 -t 2` on the skull-stripped, MNI-registered T2. **FAST's numeric class ids are not
-ordered by intensity** (on HCP T2 id 3 was the brightest class, id 2 the darkest), so CSF/GM/WM are assigned
-per subject by ranking the classes' mean T2 (`fast3_by_intensity`). The paper does not define class 4. A
-4-class FAST run was unstable across subjects (4th class mean T2 0.08-0.24; up to 20% bright voxels), so
-class 4 is defined by the fixed rule above; its fraction (0.5) is tunable (`--dark-frac`).
+FAST is run as `fast -n 3 -t 2` on the skull-stripped, MNI-registered T2. FAST's numeric class ids are not
+ordered by intensity, and its CSF class also absorbs very dark edge voxels (class id 3 on subject 100206:
+12% of the brain, mean raw T2 330 vs 392 for GM). So the dark voxels are found first by a fixed rule, the
+three classes are ranked by brightness *excluding* them (`fast3_by_intensity(..., ignore=dark)`), and the
+dark voxels are then labelled 4. The paper does not define class 4; a 4-class FAST run was unstable across
+subjects. The fraction (0.4) is tunable (`--dark-frac`).
 
 ## Test split
 `configs/test_split_brats2020.txt` holds the 31 frozen BraTS 2020 test cases (seed 42, drawn from the
