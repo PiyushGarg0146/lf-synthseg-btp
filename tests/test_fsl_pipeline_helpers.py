@@ -28,3 +28,21 @@ def test_fill_unlabeled_leaves_valid_label_map():
     out = F.fill_unlabeled(lab, m)
     assert out[14, 14, 14] == 3
     assert L.check_label_map(out, m)
+
+
+def test_row_from_outputs_roundtrip(tmp_path):
+    import nibabel as nib
+
+    mask = np.zeros((6, 6, 6), bool); mask[1:5, 1:5, 1:5] = True
+    labels = np.zeros(mask.shape, np.uint8); labels[mask] = L.WM; labels[2, 2, 2] = L.CSF
+    t2 = np.where(mask, 0.5, 0).astype(np.float32)
+    work = tmp_path / "123"; work.mkdir()
+    assert F.row_from_outputs(work) is None            # incomplete -> None
+    aff = np.eye(4)
+    nib.save(nib.Nifti1Image(t2, aff), str(work / "t2.nii.gz"))
+    nib.save(nib.Nifti1Image(labels, aff), str(work / "labels.nii.gz"))
+    nib.save(nib.Nifti1Image(mask.astype(np.uint8), aff), str(work / "mask.nii.gz"))
+    (work / "qc.png").write_bytes(b"x")
+    row = F.row_from_outputs(work)
+    assert row == F.make_row("123", labels, t2, mask)
+    assert row["brain_voxels"] == 64 and row["CSF_frac"] == round(1 / 64, 4)

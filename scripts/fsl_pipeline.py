@@ -73,37 +73,8 @@ def qc_png(t2, labels, path):
     fig.tight_layout(); fig.savefig(path, dpi=90); plt.close(fig)
 
 
-def process(src_file, out_dir, mni):
-    sid = Path(src_file).name.split("_")[0]
-    work = Path(out_dir) / sid
-    work.mkdir(parents=True, exist_ok=True)
-    native = P.standardize_native(src_file, work / "native_ras1mm.nii.gz")
-    reg = work / "t2_mni_raw.nii.gz"
-    P.register_flirt(native, mni, reg, work / "flirt.mat")
-
-    img = nib.load(str(reg))
-    data = np.clip(np.asarray(img.dataobj, dtype=np.float32), 0, None)
-    mask = brain_mask(data)
-    data[~mask] = 0
-    masked = work / "t2_mni_masked.nii.gz"
-    nib.save(nib.Nifti1Image(data, img.affine), str(masked))
-
-    seg = np.asarray(nib.load(str(run_fast(masked, work / "fast"))).dataobj).astype(np.int16)
-    seg[~mask] = 0
-    labels = fill_unlabeled(L.fast_to_project(seg), mask)
-    L.check_label_map(labels, mask)
-
-    t2n = P.normalize_intensity(data, mask)
-    nib.save(nib.Nifti1Image(t2n, img.affine), str(work / "t2.nii.gz"))
-    nib.save(nib.Nifti1Image(labels.astype(np.uint8), img.affine), str(work / "labels.nii.gz"))
-    nib.save(nib.Nifti1Image(mask.astype(np.uint8), img.affine), str(work / "mask.nii.gz"))
-    qc_png(t2n, labels, work / "qc.png")
-
-    row = {"id": sid, "brain_voxels": int(mask.sum())}
-    for k in (L.CSF, L.GM, L.WM, L.DARK):
-        sel = labels == k
-        row[f"{L.NAMES[k]}_frac"] = round(float(sel.mean() / mask.mean()), 4)
-        row[f"{L.NAMES[k]}_meanT2"] = round(float(t2n[sel].mean()), 4) if sel.any() else float("nan")
+def make_row(sid, labels, t2n, mask):
+    row = make_row(sid, labels, t2n, mask)
     return row
 
 
@@ -112,6 +83,7 @@ def main():
     ap.add_argument("--src", required=True, help="folder with HCP T2 .nii or .nii.gz files (searched recursively; Kaggle may unpack .gz uploads)")
     ap.add_argument("--dst", required=True)
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--resume", action="store_true", help="skip subjects whose outputs already exist")
     ap.add_argument("--mni", default=None, help="default: $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz (no T2 template ships with conda FSL)")
     args = ap.parse_args()
 
@@ -122,13 +94,19 @@ def main():
     if not files:
         sys.exit(f"no .nii / .nii.gz files under {args.src}")
     rows = []
-    for f in files:
-        print("processing", f.name, flush=True)
-        rows.append(process(f, args.dst, mni))
-        print(rows[-1], flush=True)
     out = Path(args.dst) / "summary.csv"
-    with open(out, "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
+    for n, f in enumerate(files, 1):
+        sid = f.name.split("_")[0]
+        row = row_from_outputs(Path(args.dst) / sid) if args.resume else None
+        if row is not None:
+            print(f"[{n}/{len(files)}] skipping {f.name} (already done)", flush=True)
+        else:
+            print(f"[{n}/{len(files)}] processing {f.name}", flush=True)
+            row = process(f, args.dst, mni)
+        rows.append(row)
+        print(row, flush=True)
+        with open(out, "w", newline="") as fh:     # saved after every subject
+            w = csv.DictWriter(fh, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
     print("wrote", out)
     r = rows[0]
     order = [r["CSF_meanT2"], r["GM_meanT2"], r["WM_meanT2"], r["dark_meanT2"]]
