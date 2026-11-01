@@ -74,6 +74,52 @@ def qc_png(t2, labels, path):
 
 
 def make_row(sid, labels, t2n, mask):
+    row = {"id": sid, "brain_voxels": int(mask.sum())}
+    for k in (L.CSF, L.GM, L.WM, L.DARK):
+        sel = labels == k
+        row[f"{L.NAMES[k]}_frac"] = round(float(sel.mean() / mask.mean()), 4)
+        row[f"{L.NAMES[k]}_meanT2"] = round(float(t2n[sel].mean()), 4) if sel.any() else float("nan")
+    return row
+
+
+def row_from_outputs(work):
+    """Rebuild the summary row of an already finished subject from its saved files (None if incomplete)."""
+    work = Path(work)
+    names = ("t2.nii.gz", "labels.nii.gz", "mask.nii.gz", "qc.png")
+    if not all((work / n).exists() for n in names):
+        return None
+    t2n = np.asarray(nib.load(str(work / "t2.nii.gz")).dataobj, dtype=np.float32)
+    labels = np.asarray(nib.load(str(work / "labels.nii.gz")).dataobj).astype(np.uint8)
+    mask = np.asarray(nib.load(str(work / "mask.nii.gz")).dataobj).astype(bool)
+    return make_row(work.name, labels, t2n, mask)
+
+
+def process(src_file, out_dir, mni):
+    sid = Path(src_file).name.split("_")[0]
+    work = Path(out_dir) / sid
+    work.mkdir(parents=True, exist_ok=True)
+    native = P.standardize_native(src_file, work / "native_ras1mm.nii.gz")
+    reg = work / "t2_mni_raw.nii.gz"
+    P.register_flirt(native, mni, reg, work / "flirt.mat")
+
+    img = nib.load(str(reg))
+    data = np.clip(np.asarray(img.dataobj, dtype=np.float32), 0, None)
+    mask = brain_mask(data)
+    data[~mask] = 0
+    masked = work / "t2_mni_masked.nii.gz"
+    nib.save(nib.Nifti1Image(data, img.affine), str(masked))
+
+    seg = np.asarray(nib.load(str(run_fast(masked, work / "fast"))).dataobj).astype(np.int16)
+    seg[~mask] = 0
+    labels = fill_unlabeled(L.fast_to_project(seg), mask)
+    L.check_label_map(labels, mask)
+
+    t2n = P.normalize_intensity(data, mask)
+    nib.save(nib.Nifti1Image(t2n, img.affine), str(work / "t2.nii.gz"))
+    nib.save(nib.Nifti1Image(labels.astype(np.uint8), img.affine), str(work / "labels.nii.gz"))
+    nib.save(nib.Nifti1Image(mask.astype(np.uint8), img.affine), str(work / "mask.nii.gz"))
+    qc_png(t2n, labels, work / "qc.png")
+
     row = make_row(sid, labels, t2n, mask)
     return row
 

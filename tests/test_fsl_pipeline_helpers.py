@@ -44,5 +44,8 @@ def test_row_from_outputs_roundtrip(tmp_path):
     nib.save(nib.Nifti1Image(mask.astype(np.uint8), aff), str(work / "mask.nii.gz"))
     (work / "qc.png").write_bytes(b"x")
     row = F.row_from_outputs(work)
-    assert row == F.make_row("123", labels, t2, mask)
+    expected = F.make_row("123", labels, t2, mask)
+    assert row.keys() == expected.keys()
+    for k in row:   # nan != nan, so compare with allclose-style equality
+        assert row[k] == expected[k] or (row[k] != row[k] and expected[k] != expected[k])
     assert row["brain_voxels"] == 64 and row["CSF_frac"] == round(1 / 64, 4)
