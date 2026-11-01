@@ -115,7 +115,7 @@ def process(src_file, out_dir, mni, dark_frac=L.DARK_FRAC):
 
     seg = np.asarray(nib.load(str(run_fast(masked, work / "fast"))).dataobj).astype(np.int16)
     seg[~mask] = 0
-    labels = fill_unlabeled(L.fast_to_project(seg), mask)
+    labels = fill_unlabeled(L.fast3_by_intensity(seg, data), mask)
     labels = L.add_dark_class(labels, data, mask, dark_frac)
     L.check_label_map(labels, mask)
 

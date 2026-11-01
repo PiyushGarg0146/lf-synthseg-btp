@@ -4,15 +4,25 @@ import pytest
 from data import labels as L
 
 
-def test_fast_remap_known_values():
-    fast = np.array([[[0, 1, 2, 3, 4]]])
-    out = L.fast_to_project(fast)
-    assert out.ravel().tolist() == [L.BACKGROUND, L.CSF, L.GM, L.WM, L.DARK]
+def test_fast3_ranks_classes_by_brightness_not_by_id():
+    # FAST id 3 is brightest, id 1 middle, id 2 darkest (the pattern seen on real HCP T2)
+    seg = np.array([[[0, 1, 2, 3]]])
+    t2 = np.array([[[0.0, 0.48, 0.32, 0.56]]])
+    out = L.fast3_by_intensity(seg, t2)
+    assert out.ravel().tolist() == [L.BACKGROUND, L.GM, L.WM, L.CSF]
 
 
-def test_fast_remap_rejects_unknown_label():
+def test_fast3_identity_when_ids_already_bright_to_dark():
+    seg = np.array([[[1, 2, 3]]])
+    t2 = np.array([[[0.9, 0.5, 0.2]]])
+    assert L.fast3_by_intensity(seg, t2).ravel().tolist() == [L.CSF, L.GM, L.WM]
+
+
+def test_fast3_rejects_wrong_class_set():
     with pytest.raises(ValueError):
-        L.fast_to_project(np.array([0, 5]))
+        L.fast3_by_intensity(np.array([0, 1, 2]), np.array([0.0, 0.4, 0.3]))
+    with pytest.raises(ValueError):
+        L.fast3_by_intensity(np.array([1, 2, 3, 4]), np.array([0.9, 0.5, 0.3, 0.1]))
 
 
 def test_valid_label_map_passes():

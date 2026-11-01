@@ -4,9 +4,8 @@ WORKING DEFINITION (the paper does not define class 4 precisely):
 FSL FAST is run with 3 classes on the skull-stripped T2 image (`fast -n 3 -t 2`) giving CSF/GM/WM.
 FAST with 4 classes was tried first, but its 4th class was unstable across subjects (mean T2 0.08-0.24,
 up to 20% bright voxels), so "dark" is instead defined by a fixed rule, see `add_dark_class`.
-With `-t 2` FAST numbers classes from BRIGHTEST to darkest (verified on HCP subject 100206:
-mean T2 of FAST classes 1-4 = 0.64, 0.44, 0.31, 0.09), i.e. CSF -> GM -> WM -> dark.
-So FAST ids coincide with the project ids; the explicit map below documents it.
+FAST's numeric class ids are not reliably ordered by intensity, so CSF/GM/WM are assigned per subject
+by ranking class mean brightness (see `fast3_by_intensity`).
 """
 import numpy as np
 
@@ -19,19 +18,24 @@ TUMOR = 5
 
 NAMES = {BACKGROUND: "background", CSF: "CSF", GM: "GM", WM: "WM", DARK: "dark", TUMOR: "tumor"}
 
-# FAST output id (descending T2 intensity with -t 2) -> project id
-FAST_T2_TO_PROJECT = {1: CSF, 2: GM, 3: WM, 4: DARK}
+def fast3_by_intensity(seg, t2):
+    """Map a FAST `-n 3` hard segmentation (ids 1-3, 0 = outside) to CSF/GM/WM by RANKING class brightness.
 
-
-def fast_to_project(fast_seg):
-    """Map a FAST `-n 4 -t 2` hard segmentation to project labels (0 stays 0)."""
-    fast_seg = np.asarray(fast_seg)
-    unexpected = set(np.unique(fast_seg).tolist()) - {0, *FAST_T2_TO_PROJECT}
-    if unexpected:
-        raise ValueError(f"Unexpected FAST labels: {sorted(unexpected)}")
-    out = np.zeros(fast_seg.shape, dtype=np.uint8)
-    for src, dst in FAST_T2_TO_PROJECT.items():
-        out[fast_seg == src] = dst
+    FAST's numeric ids are NOT ordered by intensity in a reliable way (on HCP T2, id 3 was the brightest class
+    and id 2 the darkest), so each subject's three classes are sorted by mean T2: brightest -> CSF,
+    middle -> GM, darkest -> WM.
+    """
+    seg = np.asarray(seg)
+    t2 = np.asarray(t2)
+    ids = sorted(set(np.unique(seg).tolist()) - {0})
+    if ids != [1, 2, 3]:
+        raise ValueError(f"expected FAST classes 1, 2, 3, got {ids}")
+    means = {i: float(t2[seg == i].mean()) for i in ids}
+    brightest_first = sorted(ids, key=lambda i: -means[i])
+    mapping = dict(zip(brightest_first, (CSF, GM, WM)))
+    out = np.zeros(seg.shape, dtype=np.uint8)
+    for src, dst in mapping.items():
+        out[seg == src] = dst
     return out
 
 
