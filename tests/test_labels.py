@@ -7,7 +7,7 @@ from data import labels as L
 def test_fast_remap_known_values():
     fast = np.array([[[0, 1, 2, 3, 4]]])
     out = L.fast_to_project(fast)
-    assert out.ravel().tolist() == [L.BACKGROUND, L.DARK, L.WM, L.GM, L.CSF]
+    assert out.ravel().tolist() == [L.BACKGROUND, L.CSF, L.GM, L.WM, L.DARK]
 
 
 def test_fast_remap_rejects_unknown_label():

@@ -2,8 +2,9 @@
 
 WORKING DEFINITION (to be confirmed visually on the first FAST outputs):
 FSL FAST is run with 4 classes on the skull-stripped T2 image (`fast -n 4 -t 2`).
-FAST numbers classes by increasing intensity, so on T2 the order is
-dark -> WM -> GM -> CSF. We remap to the project's label ids below.
+With `-t 2` FAST numbers classes from BRIGHTEST to darkest (verified on HCP subject 100206:
+mean T2 of FAST classes 1-4 = 0.64, 0.44, 0.31, 0.09), i.e. CSF -> GM -> WM -> dark.
+So FAST ids coincide with the project ids; the explicit map below documents it.
 """
 import numpy as np
 
@@ -16,8 +17,8 @@ TUMOR = 5
 
 NAMES = {BACKGROUND: "background", CSF: "CSF", GM: "GM", WM: "WM", DARK: "dark", TUMOR: "tumor"}
 
-# FAST output id (ascending T2 intensity) -> project id
-FAST_T2_TO_PROJECT = {1: DARK, 2: WM, 3: GM, 4: CSF}
+# FAST output id (descending T2 intensity with -t 2) -> project id
+FAST_T2_TO_PROJECT = {1: CSF, 2: GM, 3: WM, 4: DARK}
 
 
 def fast_to_project(fast_seg):
