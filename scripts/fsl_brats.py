@@ -9,7 +9,8 @@ Per case, outputs in <dst>/<id>/:
   mask.nii.gz    brain mask (includes the tumor)
   flirt.mat      the affine used
   qc.png         slices with the tumor outline
-Also writes <dst>/summary.csv, including the tumor volume before/after registration (should agree within ~2%).
+Also writes <dst>/summary.csv. Registration to MNI rescales the whole brain, so the tumor volume changes by the
+determinant of the affine (`expected_ratio`); `ratio_error` = observed/expected - 1 should be within about +-3%.
 
     python scripts/fsl_brats.py --src /kaggle/input --cases configs/test_split_brats2020.txt --dst /kaggle/working/brats_processed
 """
@@ -64,6 +65,12 @@ def tumor_volume(seg):
     return int((np.asarray(seg) > 0).sum())
 
 
+def affine_volume_factor(mat_path):
+    """Volume scaling of a FLIRT matrix = determinant of its 3x3 part (the tumor must scale by this much)."""
+    m = np.loadtxt(mat_path)
+    return float(abs(np.linalg.det(m[:3, :3])))
+
+
 def qc_png(t2, tumor, path):
     import matplotlib
     matplotlib.use("Agg")
@@ -108,8 +115,11 @@ def process(cid, t2_path, seg_path, out_dir, mni):
     nib.save(nib.Nifti1Image(mask.astype(np.uint8), aff), str(work / "mask.nii.gz"))
     qc_png(t2n, tumor, work / "qc.png")
     n_mni = int(tumor.sum())
-    return {"id": cid, "tumor_native": n_native, "tumor_mni": n_mni,
-            "volume_ratio": round(n_mni / max(n_native, 1), 4), "brain_voxels": int(mask.sum())}
+    ratio = n_mni / max(n_native, 1)
+    expected = affine_volume_factor(mat)
+    return {"id": cid, "tumor_native": n_native, "tumor_mni": n_mni, "volume_ratio": round(ratio, 4),
+            "expected_ratio": round(expected, 4), "ratio_error": round(ratio / expected - 1, 4),
+            "brain_voxels": int(mask.sum())}
 
 
 def main():
@@ -144,8 +154,9 @@ def main():
                 w = csv.DictWriter(fh, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
     print("wrote", out)
     for r in done.values():
-        if abs(r["volume_ratio"] - 1) > 0.02:
-            print(f"WARNING {r['id']}: tumor volume changed by {100 * (r['volume_ratio'] - 1):+.1f}% after registration (cut by the field of view?)")
+        if abs(r["ratio_error"]) > 0.03:
+            print(f"WARNING {r['id']}: tumor volume {100 * r['ratio_error']:+.1f}% off what the registration scaling predicts "
+                  f"(observed x{r['volume_ratio']}, expected x{r['expected_ratio']}); tumor may be cut by the field of view")
 
 
 if __name__ == "__main__":

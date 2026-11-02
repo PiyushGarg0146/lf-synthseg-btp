@@ -54,3 +54,11 @@ def test_real_split_file_has_31_unique_ids():
 def test_tumor_volume_counts_all_nonzero_labels():
     seg = np.zeros((4, 4, 4)); seg[0, 0, :2] = 1; seg[1, 1, :1] = 2; seg[2, 2, :3] = 4
     assert B.tumor_volume(seg) == 6
+
+
+def test_affine_volume_factor_is_determinant(tmp_path):
+    f = tmp_path / "x.mat"
+    np.savetxt(f, np.array([[1.1, 0, 0, 5], [0, 1.0, 0, -3], [0, 0, 1.2, 0], [0, 0, 0, 1]]))
+    assert B.affine_volume_factor(f) == pytest.approx(1.1 * 1.0 * 1.2)
+    np.savetxt(f, np.diag([-1.0, 1.0, 1.0, 1.0]))          # a flip does not change volume
+    assert B.affine_volume_factor(f) == pytest.approx(1.0)
