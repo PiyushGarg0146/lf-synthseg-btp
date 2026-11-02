@@ -56,3 +56,11 @@ subjects. The fraction (0.4) is tunable (`--dark-frac`).
 `data/preprocess.py`: reorient to RAS (HCP is LAS, BraTS is LPS) -> 1 mm isotropic -> affine
 registration to MNI152 1 mm (FSL FLIRT, T1 template + mutual information, since conda FSL has no T2 template) -> intensity scaled to [0, 1]. The FSL part runs on Kaggle via
 `notebooks/01_fsl_fast_hcp.ipynb` and `scripts/fsl_pipeline.py`.
+
+## Synthesizer design choices (Stage B; the paper gives no numbers for these)
+- Shapes (`synth/shapes.py`): 2-4 randomly rotated ellipsoids per set, boundary roughened with smooth noise; whole-tumor diameter U(35, 85) mm; ET volume = U(0.35, 0.7) x ED, NCR volume = U(0.08, 0.3) x ED; ET and NCR shifted by up to 0.2 radius.
+- Intensity (`synth/tumor.py`): NCR <- CSF, ET <- GM, ED <- WM voxels of a healthy scan; shape voxels that are not that tissue are filled by cubic RBF spline (fitted on <= 800 voxels, evaluated on a stride-4 grid, cubic-upsampled); tissue with < 20 voxels in the shape falls back to its mean T2. Sub-tumors are blended with weights U(0.5, 1.5).
+- "70% rule": we read it as "at least 70% of the tumor must lie inside the brain" (a tissue-coverage rule is impossible for CSF); the missing-region interpolation handles the rest.
+- Augmentation (`synth/paste.py`): rotation +-180 deg, scale 0.8-1.25, elastic up to ~2 mm, gamma 0.7-1.5 and gain 0.8-1.25 on tumor contrast, random movement (pasted anywhere in the brain, not where it was built).
+- Each bank entry keeps a `parts` map (1 NCR, 2 ET, 3 ED) so ET/TC/WT labels are available later for the hierarchy loss.
+- Picture check: `python scripts/synth_demo.py --hcp <hcp_processed> --out demo.png --n 6`.
