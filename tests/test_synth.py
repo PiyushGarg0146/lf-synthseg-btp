@@ -93,3 +93,19 @@ def test_place_center_rejects_when_brain_too_small():
     union = np.zeros((S.GRID,) * 3, bool)
     union[40:90, 40:90, 40:90] = True
     assert T.place_center(np.random.default_rng(0), mask, union) is None
+
+
+def test_bank_roundtrip(tmp_path):
+    from synth import bank
+    t2, lab, mask = fake_brain()
+    rng = np.random.default_rng(4)
+    entry = None
+    while entry is None:
+        entry = T.build_tumor(rng, t2, lab, mask)
+    bank.save_entry(entry, tmp_path / "a.npz")
+    back = bank.load_entry(tmp_path / "a.npz")
+    assert np.array_equal(back["parts"], entry["parts"])
+    assert np.abs(back["alpha"] - entry["alpha"]).max() < 0.01
+    vis = entry["alpha"] > 0                                      # outside the tumor box the values are dropped
+    assert np.abs(back["tumor"] - entry["tumor"])[vis].max() < 2e-3
+    assert bank.list_entries(tmp_path) == [tmp_path / "a.npz"]

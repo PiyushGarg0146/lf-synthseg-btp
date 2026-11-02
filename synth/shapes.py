@@ -22,9 +22,17 @@ def _rotation(rng):
     return q if np.linalg.det(q) > 0 else -q
 
 
-def _axes(grid):
+def smooth_noise(rng, grid, cell):
+    """Smooth random field (std 1): a coarse random grid, linearly upsampled and lightly smoothed (much faster than filtering white noise)."""
+    n = grid // cell + 3
+    z = ndimage.zoom(rng.normal(size=(n,) * 3).astype(np.float32), grid / (n - 1), order=1)[:grid, :grid, :grid]
+    z = ndimage.gaussian_filter(z, cell / 8)
+    return (z - z.mean()) / z.std()
+
+
+def _axes(grid, step=1):
     c = (grid - 1) / 2
-    a = np.arange(grid, dtype=np.float32) - c
+    a = np.arange(0, grid, step, dtype=np.float32) - c
     return a[:, None, None], a[None, :, None], a[None, None, :]
 
 
@@ -36,18 +44,18 @@ def _params(rng, n, radius):
     return out
 
 
-def _field(params, noise, scale, grid):
-    x = _axes(grid)
+def _field(params, noise, scale, grid, step=1):
+    x = _axes(grid, step)
     f = None
     for c, R, r in params:
-        c, r = c * scale, r * scale
+        c, r = (c * scale).astype(np.float32), (r * scale).astype(np.float32)
         d = [x[0] - c[0], x[1] - c[1], x[2] - c[2]]
         q2 = 0
         for j in range(3):
             q = R[0, j] * d[0] + R[1, j] * d[1] + R[2, j] * d[2]
             q2 = q2 + (q / r[j]) ** 2
         f = 1 - q2 if f is None else np.maximum(f, 1 - q2)
-    return f + noise
+    return f + noise[::step, ::step, ::step]
 
 
 def _largest(m):
@@ -61,12 +69,10 @@ def random_shape(rng, volume, grid=GRID):
     """Union of 2-4 random ellipsoids with a rough boundary and (about) the requested volume in voxels."""
     radius = (3 * volume / (4 * np.pi)) ** (1 / 3)
     params = _params(rng, int(rng.integers(2, 5)), radius)
-    noise = ndimage.gaussian_filter(rng.normal(size=(grid,) * 3).astype(np.float32), 10)
-    noise *= rng.uniform(0.1, 0.3) / noise.std()
+    noise = smooth_noise(rng, grid, 24) * rng.uniform(0.1, 0.3)
     scale = 1.0
     for _ in range(3):                      # rescale so the volume matches the request
-        m = _field(params, noise, scale, grid) > 0
-        v = int(m.sum())
+        v = int((_field(params, noise, scale, grid, step=2) > 0).sum()) * 8      # coarse grid: 8x cheaper
         if v == 0:
             scale *= 1.3
             continue

@@ -36,8 +36,7 @@ def augment(rng, entry):
     amp = rng.uniform(*ELASTIC_MM)
     if amp > 0:
         for a in range(3):
-            d = ndimage.gaussian_filter(rng.normal(size=(g,) * 3).astype(np.float32), 12)
-            coords[a] += d * (amp / max(d.std(), 1e-6)) * 0.5
+            coords[a] += S.smooth_noise(rng, g, 28) * (amp * 0.5)
     warp = lambda v, o: ndimage.map_coordinates(v, coords, order=o, mode="constant", cval=0)
     tumor, alpha = warp(entry["tumor"], 1), np.clip(warp(entry["alpha"], 1), 0, 1)
     parts = warp(entry["parts"].astype(np.uint8), 0).astype(np.uint8)
