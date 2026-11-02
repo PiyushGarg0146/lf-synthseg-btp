@@ -109,3 +109,15 @@ def test_bank_roundtrip(tmp_path):
     vis = entry["alpha"] > 0                                      # outside the tumor box the values are dropped
     assert np.abs(back["tumor"] - entry["tumor"])[vis].max() < 2e-3
     assert bank.list_entries(tmp_path) == [tmp_path / "a.npz"]
+
+
+def test_build_tumor_survives_degenerate_spline(monkeypatch):
+    def boom(*a, **k):
+        raise np.linalg.LinAlgError("Singular matrix")
+    monkeypatch.setattr(T, "fill_missing", boom)
+    t2, lab, mask = fake_brain()
+    rng = np.random.default_rng(2)
+    entry = None
+    while entry is None:
+        entry = T.build_tumor(rng, t2, lab, mask)
+    assert (entry["parts"] > 0).any() and np.isfinite(entry["tumor"]).all()

@@ -82,9 +82,13 @@ def build_tumor(rng, t2, labels, mask, shapes=None, weights=None):
     num = np.zeros_like(x); den = np.zeros_like(x)
     for m, tissue, wi in zip((m1, m2, m3), SOURCE_TISSUE, w):
         valid = m & (lab == tissue)
+        inten = None
         if valid.sum() >= MIN_SAMPLES:
-            inten = fill_missing(x, valid, m, rng)
-        else:
+            try:
+                inten = fill_missing(x, valid, m, rng)
+            except np.linalg.LinAlgError:         # valid voxels lie in a plane/line: the spline is ill-posed
+                pass
+        if inten is None:
             inten = np.full_like(x, t2[labels == tissue].mean())
         s = ndimage.gaussian_filter(m.astype(np.float32), 2.0) * wi
         num += s * inten; den += s
