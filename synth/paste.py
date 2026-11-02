@@ -1,6 +1,7 @@
 """Augment a bank entry and paste it into a healthy scan (paper Eq. 7), producing image + 5-class labels.
 
 Five random augmentations (paper III-A5): deformation, scaling, rotation, contrast, movement.
+Contrast = gamma in `augment` + a brightness rescale in `paste` (tumors are bright on T2: mean between GM and CSF of the host scan).
 Movement = the tumor is pasted at a random place that is generally NOT where its intensities were taken from.
 Ranges below are our choices (the paper gives none).
 """
@@ -15,7 +16,7 @@ SCALE = (0.8, 1.25)
 ROTATE_DEG = 180
 ELASTIC_MM = (0.0, 4.0)
 GAMMA = (0.7, 1.5)
-GAIN = (0.8, 1.25)
+BRIGHT = (0.3, 1.0)     # tumor mean T2 = GM mean + u x (CSF mean - GM mean) of the host scan, u ~ U(BRIGHT)
 
 
 def augment(rng, entry):
@@ -41,9 +42,9 @@ def augment(rng, entry):
     tumor, alpha = warp(entry["tumor"], 1), np.clip(warp(entry["alpha"], 1), 0, 1)
     parts = warp(entry["parts"].astype(np.uint8), 0).astype(np.uint8)
     inside = parts > 0
-    if inside.any():                                              # contrast: gamma and gain about the tumor mean
-        mu = tumor[inside].mean()
-        tumor = np.clip(mu * rng.uniform(*GAIN) * (np.clip(tumor, 1e-4, 1) / max(mu, 1e-4)) ** rng.uniform(*GAMMA), 0, 1)
+    if inside.any():                                              # gamma changes the contrast inside the tumor
+        mu = max(float(tumor[inside].mean()), 1e-4)
+        tumor = np.clip(mu * (np.clip(tumor, 1e-4, 1) / mu) ** rng.uniform(*GAMMA), 0, 1)
     return {"tumor": tumor.astype(np.float32), "alpha": alpha, "parts": parts}
 
 
@@ -68,8 +69,14 @@ def paste(rng, t2, labels, mask, entry):
     src, dst = tuple(src), tuple(dst)
     brain = mask[src]
     a = entry["alpha"][dst] * brain
+    tum = entry["tumor"][dst]
+    inside = (entry["parts"][dst] > 0) & brain
+    mu_gm, mu_csf = float(t2[labels == L.GM].mean()), float(t2[labels == L.CSF].mean())
+    target = mu_gm + rng.uniform(*BRIGHT) * (mu_csf - mu_gm)
+    if inside.any() and tum[inside].mean() > 1e-4:
+        tum = np.clip(tum * (target / tum[inside].mean()), 0, 1)
     x = t2.copy()
-    x[src] = (1 - a) * t2[src] + a * entry["tumor"][dst]
+    x[src] = (1 - a) * t2[src] + a * tum
     parts = np.zeros(t2.shape, np.uint8)
     parts[src] = np.where(brain, entry["parts"][dst], 0)
     out = labels.copy()
