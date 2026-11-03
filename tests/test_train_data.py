@@ -82,3 +82,15 @@ def test_predict_tumor_prob_shapes_and_range():
     prob, arg = predict_tumor_prob(model, t2, 6, "cpu", roi=64)
     assert prob.shape == arg.shape == t2.shape
     assert prob.min() >= 0 and prob.max() <= 1 and arg.max() <= 5
+
+
+def test_scans_found_with_either_nifti_extension(tmp_path):
+    from data.io import find_nifti
+    for name, ext in (("a", ".nii.gz"), ("b", ".nii")):
+        d = tmp_path / "hcp" / name
+        d.mkdir(parents=True)
+        (d / f"labels{ext}").write_bytes(b"x")
+    assert [p.name for p in D.find_scans(tmp_path / "hcp")] == ["a", "b"]
+    assert find_nifti(tmp_path / "hcp" / "b", "labels").name == "labels.nii"
+    assert find_nifti(tmp_path / "hcp" / "a", "labels").name == "labels.nii.gz"
+    assert find_nifti(tmp_path / "hcp" / "a", "t2") is None

@@ -15,7 +15,7 @@ import torch
 from torch.utils.data import IterableDataset, get_worker_info
 
 from data import labels as L
-from data.io import load_nifti
+from data.io import find_nifti, load_nifti
 from synth import bank
 from synth import paste as P
 from synth import shapes as S
@@ -27,15 +27,15 @@ NEAR_MM = 48
 
 
 def find_scans(root):
-    return sorted(p.parent for p in Path(root).rglob("labels.nii.gz"))
+    return sorted({p.parent for p in Path(root).rglob("labels.nii*")})
 
 
 def load_scans(root, limit=None):
     scans = []
     for d in find_scans(root)[:limit]:
-        t2 = load_nifti(d / "t2.nii.gz")[0].astype(np.float32)
-        lab = load_nifti(d / "labels.nii.gz")[0].astype(np.uint8)
-        mask = load_nifti(d / "mask.nii.gz")[0] > 0
+        t2 = load_nifti(find_nifti(d, "t2"))[0].astype(np.float32)
+        lab = load_nifti(find_nifti(d, "labels"))[0].astype(np.uint8)
+        mask = load_nifti(find_nifti(d, "mask"))[0] > 0
         scans.append({"id": d.name, "t2": t2, "labels": lab, "mask": mask, "inside": np.argwhere(mask),
                       "mu_gm": float(t2[lab == L.GM].mean()), "mu_csf": float(t2[lab == L.CSF].mean())})
     if not scans:

@@ -19,6 +19,15 @@ def load_paths(config=None):
         return {k: Path(v) for k, v in yaml.safe_load(f).items()}
 
 
+def find_nifti(folder, stem):
+    """folder/<stem>.nii.gz or folder/<stem>.nii (Kaggle unpacks uploaded .nii.gz files); None if neither exists."""
+    for ext in (".nii.gz", ".nii"):
+        f = Path(folder) / (stem + ext)
+        if f.exists():
+            return f
+    return None
+
+
 def load_nifti(path):
     """Return (data float32, affine 4x4, voxel size tuple in mm)."""
     img = nib.load(str(path))

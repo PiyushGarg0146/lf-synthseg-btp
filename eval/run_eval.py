@@ -19,6 +19,7 @@ from monai.inferers import sliding_window_inference
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from data import labels as L  # noqa: E402
+from data.io import find_nifti  # noqa: E402
 from eval import metrics as M  # noqa: E402
 from train.model import build_model  # noqa: E402
 
@@ -49,12 +50,12 @@ def main():
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    cases, rows = sorted(p for p in Path(args.brats).iterdir() if (p / "t2.nii.gz").exists())[: args.limit], []
+    cases, rows = sorted(p for p in Path(args.brats).iterdir() if p.is_dir() and find_nifti(p, "t2"))[: args.limit], []
     for d in cases:
-        img = nib.load(str(d / "t2.nii.gz"))
+        img = nib.load(str(find_nifti(d, "t2")))
         t2 = np.asarray(img.dataobj, dtype=np.float32)
-        gt = np.asarray(nib.load(str(d / "tumor.nii.gz")).dataobj) > 0
-        brain = np.asarray(nib.load(str(d / "mask.nii.gz")).dataobj) > 0
+        gt = np.asarray(nib.load(str(find_nifti(d, "tumor"))).dataobj) > 0
+        brain = np.asarray(nib.load(str(find_nifti(d, "mask"))).dataobj) > 0
         prob, arg = predict_tumor_prob(model, t2, classes, dev)
         pred = (arg == L.TUMOR) if classes == 6 else (prob > 0.5)
         r = {"id": d.name, **M.evaluate_case(pred, gt, prob, spacing=img.header.get_zooms()[:3], brain_mask=brain)}
