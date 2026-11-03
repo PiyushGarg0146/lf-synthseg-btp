@@ -64,3 +64,10 @@ registration to MNI152 1 mm (FSL FLIRT, T1 template + mutual information, since 
 - Augmentation (`synth/paste.py`): rotation +-180 deg, scale 0.8-1.25, elastic up to ~2 mm, gamma 0.7-1.5 on tumor contrast, then tumor mean T2 set to GM mean + U(0.3, 1.0) x (CSF mean - GM mean) of the host scan (tumors are bright on T2; chosen by eye on HCP pictures, NOT tuned on the BraTS test cases), random movement (pasted anywhere in the brain, not where it was built).
 - Each bank entry keeps a `parts` map (1 NCR, 2 ET, 3 ED) so ET/TC/WT labels are available later for the hierarchy loss.
 - Picture check: `python scripts/synth_demo.py --hcp <hcp_processed> --out demo.png --n 6`.
+
+## Training and evaluation (Stage C)
+- `scripts/pack_kaggle_data.py` copies only the needed files into three zips for upload as Kaggle datasets (healthy scans, tumor bank, BraTS test cases).
+- `train/train.py`: MONAI DynUNet (`train/model.py`), Dice + CE loss, linear warm-up + cosine LR, AMP, checkpoint/resume. Output classes: 6 = outside-brain 0, CSF, GM, WM, dark, tumor (C2) or 2 = tumor-only (C1).
+- `train/data.py`: workers cut 96^3 host patches and draw augmentation numbers; the tumor rotation/deformation/blending (`synth/paste.py: render`) runs on the GPU. 70% of patches are centred near the tumor, 30% on a random brain voxel.
+- `eval/run_eval.py`: sliding window (96^3, 25% overlap), whole-tumor DSC / HD95 / AUPRC / SEN on the 31 BraTS cases. Run once per finished model; no checkpoint is chosen on BraTS data.
+- Kaggle notebook: `notebooks/03_train_baseline.ipynb` (pilot of 300 iterations first, then the full run).

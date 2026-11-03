@@ -74,7 +74,7 @@ def test_build_and_paste_make_consistent_image_and_labels():
     assert entry["tumor"].min() >= 0 and entry["tumor"].max() <= 1
     res = None
     while res is None:
-        res = P.paste(rng, t2, lab, mask, P.augment(rng, entry))
+        res = P.paste(rng, t2, lab, mask, entry)
     x, labels, parts = res
     tumor = labels == L.TUMOR
     assert tumor.sum() > 1000

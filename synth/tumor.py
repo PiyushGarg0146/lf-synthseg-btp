@@ -55,12 +55,17 @@ def fill_missing(values, valid, region, rng):
     return out
 
 
-def place_center(rng, mask, union, tries=50):
-    """Pick a brain voxel so that >= 70% of `union` (a GRID^3 shape) falls inside the brain; None if not found."""
-    inside = np.argwhere(mask)
-    n = union.sum()
-    pts = np.argwhere(union)
-    off = pts - S.GRID // 2
+def place_center(rng, mask, union=None, tries=50, inside=None, off=None):
+    """Pick a brain voxel so that >= 70% of the tumor falls inside the brain; None if not found.
+
+    The tumor is `union` (a GRID^3 bool shape, centred at voxel GRID//2) or, to avoid recomputing, its voxel offsets
+    `off` (N x 3, relative to the centre); `inside` = precomputed np.argwhere(mask).
+    """
+    if inside is None:
+        inside = np.argwhere(mask)
+    if off is None:
+        off = np.argwhere(union) - S.GRID // 2
+    n = len(off)
     for _ in range(tries):
         c = inside[rng.integers(len(inside))]
         q = off + c

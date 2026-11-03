@@ -14,6 +14,12 @@ def save_entry(entry, path):
                         alpha=(entry["alpha"][sl] * 255).round().astype(np.uint8), parts=entry["parts"][sl])
 
 
+def load_raw(path):
+    """Entry as stored: arrays cropped to the tumor box (tumor f16, alpha u8 0-255, parts u8) and the box corner `lo`."""
+    z = np.load(path)
+    return {"lo": z["lo"], "tumor": z["tumor"], "alpha": z["alpha"], "parts": z["parts"]}
+
+
 def load_entry(path):
     z = np.load(path)
     lo = z["lo"]

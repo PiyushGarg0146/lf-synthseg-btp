@@ -52,7 +52,7 @@ def main():
         t1 = time.time()
         res = None
         while res is None:
-            res = P.paste(rng, t2, lab, mask, P.augment(rng, entry))
+            res = P.paste(rng, t2, lab, mask, entry)
         x, labels, parts = res
         print(f"tumor {i}: build {t1 - t0:.1f}s, paste {time.time() - t1:.1f}s, volume {int((labels == 5).sum())}")
         c = [int(round(v)) for v in ndimage.center_of_mass(parts > 0)]
