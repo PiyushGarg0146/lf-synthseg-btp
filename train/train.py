@@ -43,6 +43,7 @@ def main():
     ap.add_argument("--patch", type=int, default=96)
     ap.add_argument("--ckpt-every", type=int, default=500)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--no-augment", action="store_true", help="switch off the whole-image appearance augmentation")
     ap.add_argument("--max-scans", type=int, default=None, help="use only the first N healthy scans (quick tests)")
     ap.add_argument("--max-minutes", type=float, default=None, help="stop (after saving) once this much time has passed")
     args = ap.parse_args()
@@ -85,7 +86,7 @@ def main():
         lr = lr_at(it, args.iters, args.lr, args.warmup)
         for g in opt.param_groups:
             g["lr"] = lr
-        b = render_batch(batch, dev, tumor_only=args.classes == 2)        # tumor rotation/blending runs on the GPU
+        b = render_batch(batch, dev, tumor_only=args.classes == 2, augment=not args.no_augment)        # tumor rotation/blending runs on the GPU
         x, y = b["image"], b["label"]
         with torch.autocast(device_type=dev, dtype=torch.float16, enabled=dev == "cuda"):
             loss = loss_fn(model(x), y)

@@ -34,6 +34,25 @@ def predict_tumor_prob(model, t2, classes, device, roi=96, overlap=0.25, sw_batc
     return prob[L.TUMOR if classes == 6 else 1].cpu().numpy(), prob.argmax(0).cpu().numpy()
 
 
+def save_pictures(items, path):
+    """Rows = cases (worst first): T2 with the true tumor (green) and the predicted tumor (red), at the true tumor's centre slice."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from scipy import ndimage
+    fig, ax = plt.subplots(len(items), 3, figsize=(9, 3 * len(items)))
+    for i, (name, t2, gt, pred) in enumerate(items):
+        c = [int(round(v)) for v in ndimage.center_of_mass(gt)]
+        for j, sl in enumerate((np.s_[:, :, c[2]], np.s_[:, c[1], :], np.s_[c[0]])):
+            a = ax[i, j]
+            a.imshow(np.rot90(t2[sl]), cmap="gray", vmin=0, vmax=1)
+            if gt[sl].any(): a.contour(np.rot90(gt[sl]), levels=[0.5], colors="lime", linewidths=0.8)
+            if pred[sl].any(): a.contour(np.rot90(pred[sl]), levels=[0.5], colors="red", linewidths=0.8)
+            a.axis("off")
+        ax[i, 0].set_title(name, fontsize=8, loc="left")
+    fig.tight_layout(); fig.savefig(path, dpi=70); plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
@@ -50,6 +69,7 @@ def main():
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
+    pics = []
     cases, rows = sorted(p for p in Path(args.brats).iterdir() if p.is_dir() and find_nifti(p, "t2"))[: args.limit], []
     for d in cases:
         img = nib.load(str(find_nifti(d, "t2")))
@@ -61,8 +81,11 @@ def main():
         r = {"id": d.name, **M.evaluate_case(pred, gt, prob, spacing=img.header.get_zooms()[:3], brain_mask=brain)}
         r["pred_voxels"], r["gt_voxels"] = int(pred.sum()), int(gt.sum())
         rows.append(r)
+        pics.append((d.name, t2, gt, pred, r["dsc"]))
         nib.save(nib.Nifti1Image(pred.astype(np.uint8), img.affine), str(out / f"pred_{d.name}.nii.gz"))
         print({k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}, flush=True)
+    pics.sort(key=lambda t: t[4])
+    save_pictures([p[:4] for p in pics[:3] + pics[len(pics) // 2: len(pics) // 2 + 1] + pics[-1:]], out / "pictures.png")   # 3 worst, 1 middle, 1 best
     with open(out / "per_case.csv", "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
     summary = M.summarize(rows)

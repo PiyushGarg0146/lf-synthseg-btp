@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import IterableDataset, get_worker_info
 
 from data import labels as L
@@ -91,10 +92,35 @@ def render_item(item, device="cpu"):
                     t(item["mask"], torch.bool), item["ctr"], item["params"], item["mu_gm"], item["mu_csf"])
 
 
-def render_batch(items, device="cpu", tumor_only=False):
+def augment_image(x, brain):
+    """Whole-image appearance changes so the network cannot rely on the exact look of the clean HCP scans
+    (real BraTS scans are noisier, blurrier, have a slow brightness drift and a different contrast).
+    x (B,1,D,H,W) in [0,1], brain (B,1,D,H,W) bool. Each sample gets its own random numbers; nothing outside the brain changes."""
+    b = x.shape[0]
+    u = lambda lo, hi: torch.empty(b, 1, 1, 1, 1, device=x.device).uniform_(lo, hi)
+    out = x.clamp(0, 1) ** u(0.7, 1.5)                                         # global contrast (gamma)
+    out = out * u(0.8, 1.2)                                                    # global brightness
+    low = torch.randn(b, 1, 4, 4, 4, device=x.device)                          # slow brightness drift (bias field), +-25%
+    out = out * (1 + 0.25 * torch.tanh(F.interpolate(low, size=x.shape[2:], mode="trilinear", align_corners=True)))
+    k = int(torch.randint(0, 3, (1,)))                                         # blur: none / light / medium (same for the batch)
+    if k:
+        r = k + 1
+        w = torch.exp(-0.5 * (torch.arange(-r, r + 1, device=x.device, dtype=x.dtype) / (0.5 * k + 0.3)) ** 2)
+        w = w / w.sum()
+        for ax in (2, 3, 4):
+            shape = [1, 1, 1, 1, 1]; shape[ax] = -1
+            pad = [0, 0, 0, 0, 0, 0]; pad[2 * (4 - ax) + 1] = r; pad[2 * (4 - ax)] = r
+            out = F.conv3d(F.pad(out, pad, mode="replicate"), w.view(shape))
+    out = out + u(0.0, 0.04) * torch.randn_like(out)                           # noise
+    return out.clamp(0, 1) * brain
+
+
+def render_batch(items, device="cpu", tumor_only=False, augment=False):
     """List of raw items -> dict(image (B,1,D,H,W) float, label (B,1,D,H,W) long, parts (B,1,D,H,W) long)."""
     xs, ls, ps = zip(*(render_item(it, device) for it in items))
     label = torch.stack(ls)[:, None]
+    if augment:
+        xs = list(augment_image(torch.stack(xs)[:, None], label > 0)[:, 0])
     if tumor_only:
         label = (label == L.TUMOR).long()
     return {"image": torch.stack(xs)[:, None], "label": label, "parts": torch.stack(ps)[:, None].long()}

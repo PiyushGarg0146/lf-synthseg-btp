@@ -94,3 +94,13 @@ def test_scans_found_with_either_nifti_extension(tmp_path):
     assert find_nifti(tmp_path / "hcp" / "b", "labels").name == "labels.nii"
     assert find_nifti(tmp_path / "hcp" / "a", "labels").name == "labels.nii.gz"
     assert find_nifti(tmp_path / "hcp" / "a", "t2") is None
+
+
+def test_augment_image_keeps_range_and_outside_brain_zero():
+    x = torch.rand(2, 1, 24, 24, 24)
+    brain = torch.zeros(2, 1, 24, 24, 24, dtype=torch.bool)
+    brain[:, :, 4:20, 4:20, 4:20] = True
+    from train.data import augment_image
+    y = augment_image(x * brain, brain)
+    assert y.shape == x.shape and y.min() >= 0 and y.max() <= 1
+    assert float(y[~brain].abs().sum()) == 0 and float(y[brain].std()) > 0
