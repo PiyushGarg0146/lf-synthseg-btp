@@ -1,0 +1,147 @@
+\documentclass[10pt,a4paper,twocolumn,twoside]{article}
+\usepackage[margin=0.75in,columnsep=0.3in]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,graphicx,booktabs,hyperref,xcolor}
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+
+\title{Mass-Effect Deformation and Hierarchy-Aware Loss for Label-Free\\
+Synthetic-Tumor Brain MRI Segmentation}
+\author{Piyush Garg, Sahaj Sharma, Goutam Jain\\
+\small Supervisor: Dr.\ Vijay\\
+\small Netaji Subhas University of Technology (NSUT), New Delhi}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Training deep networks to segment brain tumors normally needs hundreds of
+voxel-wise annotated scans, which are slow and costly to produce.
+Label-free approaches avoid this by training only on synthetic data:
+fake tumors are pasted into healthy scans, and the network never sees a
+human-labeled tumor. LF-SynthSeg \cite{lfsynthseg} follows this idea for
+T2-weighted MRI by filling random ellipsoid-based tumor shapes with the
+intensities of healthy brain tissue and training a 3D network on the result.
+We re-implement this pipeline from scratch (healthy HCP scans, tissue
+labels from FSL FAST, a bank of 1000 synthetic tumors, a DynUNet
+segmenter) and evaluate it on 31 BraTS~2020 cases using the Dice score,
+HD95, AUPRC and sensitivity. On top of this baseline we study two
+additions: (i) a 3D mass-effect module that pushes surrounding tissue away
+from the synthetic tumor with a smooth, folding-free deformation, and
+(ii) a hierarchy-aware loss that exploits the nested structure of tumor
+sub-regions (necrotic core, enhancing tumor, edema). \todo{one sentence on
+the reproduced baseline result, e.g.\ ``Our reproduction reaches a Dice of X
+against 0.823 reported originally''.} \todo{one sentence per addition with
+its effect and significance over 3+ seeds, or an honest negative result.}
+\end{abstract}
+
+\section{Introduction}
+Brain tumors such as gliomas are among the most lethal cancers, and magnetic
+resonance imaging (MRI) is the main tool for diagnosing them and planning
+treatment. Delineating the tumor on each scan is a time-consuming task that
+varies between observers, so automatic segmentation is attractive.
+Convolutional networks, in particular U-Net variants
+\cite{unet,nnunet}, now reach expert-level accuracy on public benchmarks such as
+the Brain Tumor Segmentation (BraTS) challenge \cite{menze,bakas}.
+
+These models, however, rely on large sets of manually annotated scans.
+Annotations need trained radiologists, and a model trained on one scanner,
+protocol or hospital often loses accuracy elsewhere. Synthetic training data
+offers a way out. SynthSeg \cite{synthseg} showed that a network trained
+only on synthetic scans generated from label maps can segment healthy brain
+anatomy across contrasts and resolutions. For tumors, label-free
+tumor synthesis was explored for liver CT \cite{labelfree_liver}, and
+LF-SynthSeg \cite{lfsynthseg} brought it to brain MRI: random tumor shapes are
+filled with the intensities of CSF, gray matter and white matter taken from
+the same scan, pasted into healthy T2 images, and a segmentation network is
+trained on these images with no real tumor annotation at all.
+
+Two aspects of this approach are open for improvement. First, a real
+tumor does not only replace healthy tissue; it also \emph{displaces} it. This
+\emph{mass effect} pushes the ventricles and cortex away from the lesion, and
+the synthetic tumors of the original method do not model it. Second, tumors
+have a nested structure (a whole tumor contains a core, which contains
+enhancing and necrotic parts), yet the loss used for training treats
+the classes as unrelated.
+
+In this work we make the following contributions:
+\begin{itemize}
+\item We re-implement LF-SynthSeg from scratch on public data (HCP T2 scans
+as healthy hosts, FSL FAST tissue labels, a bank of 1000 synthetic tumors, a
+3D DynUNet) and report its performance on 31 BraTS~2020 cases under the
+original protocol.
+\item We add a 3D mass-effect deformation that moves surrounding tissue away
+from the synthetic tumor while keeping the transformation smooth and
+invertible (positive Jacobian determinant) and confined to the brain.
+\item We add a hierarchy-aware loss that uses the nesting of tumor
+sub-regions, and compare variants in a controlled ablation with several
+random seeds and paired statistical tests.
+\item We document the practical problems met while reproducing the method,
+such as the gap between synthetic and real images, and how we addressed
+them without using the test cases for tuning.
+\end{itemize}
+
+\section{Literature Review}
+\subsection{Supervised brain tumor segmentation}
+The BraTS challenge provides multi-institutional multi-parametric scans with
+expert labels for tumor sub-regions \cite{menze,bakas}. Early deep
+approaches used patch-wise 2D and 3D convolutional networks; the encoder-decoder
+U-Net \cite{unet} and its 3D extensions became the standard. The nnU-Net
+framework \cite{nnunet} showed that careful automatic configuration of a
+plain U-Net is hard to beat, and winners of BraTS used region-based, nested
+targets (whole tumor, tumor core, enhancing tumor) together with Dice-based
+losses \cite{myronenko,vnet}. All of these need the full set of manual
+labels.
+
+\subsection{Synthetic data and data augmentation for lesions}
+Generative adversarial networks have been used to create additional training
+images \cite{shin}, but they need real data to train and can copy its biases.
+Mixing-based augmentation such as CarveMix \cite{carvemix} combines lesions
+from labeled scans with other images, which still requires some annotated
+lesions. Domain randomization takes a different route: SynthSeg
+\cite{synthseg} generates scans with random contrast, resolution and
+artifacts from label maps, and a network trained purely on them generalizes
+to real scans. This idea is the base of label-free methods.
+
+\subsection{Label-free tumor synthesis}
+Hu et al.\ \cite{labelfree_liver} trained liver tumor segmentation on tumors
+synthesized in healthy CT scans, with shapes and textures designed by hand and
+no real tumor labels. LF-SynthSeg \cite{lfsynthseg} applies the principle to
+T2-weighted brain MRI. Random shapes are built as unions of ellipsoids, their
+inner regions are linked to the three healthy tissues (necrotic core with CSF,
+enhancing tumor with gray matter, edema with white matter), missing
+intensities are completed by interpolation, and the result is blended into
+healthy scans whose tissue labels come from an automatic segmentation. The
+authors report a whole-tumor Dice of 0.823 on BraTS~2020. Our work is a
+from-scratch reproduction and an extension of this method.
+
+\subsection{Mass effect and hierarchy-aware learning}
+Biophysical models of tumor growth simulate the deformation of brain tissue
+around a lesion \cite{hogea}, but are expensive and are usually not used for
+data synthesis at scale. A lighter approach is a smooth displacement field
+that moves tissue radially away from the tumor boundary; we explore this
+for synthetic data. For the loss, nested label structure has been exploited in
+BraTS through region-based targets \cite{nnunet,myronenko}; we test such
+ideas in the label-free setting.
+
+\subsection{Gap addressed by this work}
+To our knowledge, the effect of explicit mass effect and of a hierarchy-aware
+loss on label-free brain tumor synthesis has not been studied.
+
+
+\begin{thebibliography}{99}\small
+\bibitem{lfsynthseg} Y.~Xu \emph{et al.}, ``LF-SynthSeg: Label-free brain tissue-assisted tumor synthesis and segmentation,'' \emph{IEEE Journal of Biomedical and Health Informatics}, 2025.
+\bibitem{synthseg} B.~Billot \emph{et al.}, ``SynthSeg: Segmentation of brain MRI scans of any contrast and resolution without retraining,'' \emph{Medical Image Analysis}, vol.~86, 2023.
+\bibitem{labelfree_liver} Q.~Hu \emph{et al.}, ``Label-free liver tumor segmentation,'' in \emph{Proc.\ IEEE/CVF CVPR}, 2023.
+\bibitem{menze} B.~H. Menze \emph{et al.}, ``The multimodal brain tumor image segmentation benchmark (BRATS),'' \emph{IEEE Trans.\ Medical Imaging}, vol.~34, no.~10, 2015.
+\bibitem{bakas} S.~Bakas \emph{et al.}, ``Advancing The Cancer Genome Atlas glioma MRI collections with expert segmentation labels and radiomic features,'' \emph{Scientific Data}, vol.~4, 2017.
+\bibitem{unet} O.~Ronneberger, P.~Fischer, T.~Brox, ``U-Net: Convolutional networks for biomedical image segmentation,'' in \emph{MICCAI}, 2015.
+\bibitem{nnunet} F.~Isensee \emph{et al.}, ``nnU-Net: a self-configuring method for deep learning-based biomedical image segmentation,'' \emph{Nature Methods}, vol.~18, 2021.
+\bibitem{myronenko} A.~Myronenko, ``3D MRI brain tumor segmentation using autoencoder regularization,'' in \emph{BrainLes (MICCAI Workshop)}, 2018.
+\bibitem{vnet} F.~Milletari, N.~Navab, S.-A. Ahmadi, ``V-Net: Fully convolutional neural networks for volumetric medical image segmentation,'' in \emph{3DV}, 2016.
+\bibitem{shin} H.-C. Shin \emph{et al.}, ``Medical image synthesis for data augmentation and anonymization using generative adversarial networks,'' in \emph{SASHIMI (MICCAI Workshop)}, 2018.
+\bibitem{carvemix} X.~Zhang \emph{et al.}, ``CarveMix: A simple data augmentation method for brain lesion segmentation,'' \emph{NeuroImage}, vol.~271, 2023.
+\bibitem{hogea} C.~Hogea, C.~Davatzikos, G.~Biros, ``An image-driven parameter estimation problem for a reaction--diffusion glioma growth model with mass effects,'' \emph{J.\ Mathematical Biology}, vol.~56, 2008.
+\end{thebibliography}
+\end{document}

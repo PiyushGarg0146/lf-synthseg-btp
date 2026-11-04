@@ -92,13 +92,32 @@ def render_item(item, device="cpu"):
                     t(item["mask"], torch.bool), item["ctr"], item["params"], item["mu_gm"], item["mu_csf"])
 
 
-def augment_image(x, brain):
-    """Whole-image appearance changes so the network cannot rely on the exact look of the clean HCP scans
-    (real BraTS scans are noisier, blurrier, have a slow brightness drift and a different contrast).
-    x (B,1,D,H,W) in [0,1], brain (B,1,D,H,W) bool. Each sample gets its own random numbers; nothing outside the brain changes."""
+def widen_csf(x, label, rng_k):
+    """Make the fluid spaces (ventricles, sulci) wider in some samples, so enlarged CSF counts as normal anatomy.
+    The healthy HCP scans are young adults with small ventricles; BraTS patients are older. New CSF voxels take the
+    scan's own CSF brightness and the label becomes CSF; tumor and outside-brain voxels are left alone."""
+    csf = (label == L.CSF).float()
+    grown = F.max_pool3d(csf, rng_k, 1, rng_k // 2) > 0
+    new = grown & (label > 0) & (label != L.TUMOR) & (csf == 0)
+    level = (x * csf).sum((1, 2, 3, 4), keepdim=True) / csf.sum((1, 2, 3, 4), keepdim=True).clamp_min(1)
+    return torch.where(new, level.expand_as(x), x), torch.where(new, torch.full_like(label, L.CSF), label)
+
+
+def augment_image(x, label):
+    """Appearance changes so the network cannot rely on the exact look of the clean HCP scans (real BraTS scans are
+    noisier, blurrier, have a slow brightness drift and different tissue contrast, and older brains have bigger fluid spaces).
+    x (B,1,D,H,W) in [0,1], label (B,1,D,H,W) long (0 = outside brain, 5 = tumor). Each sample gets its own random numbers.
+    Returns the new image and the (possibly changed) label."""
     b = x.shape[0]
     u = lambda lo, hi: torch.empty(b, 1, 1, 1, 1, device=x.device).uniform_(lo, hi)
-    out = x.clamp(0, 1) ** u(0.7, 1.5)                                         # global contrast (gamma)
+    if torch.rand(1).item() < 0.5:                                             # wider ventricles / sulci (whole batch)
+        x, label = widen_csf(x, label, int(torch.randint(1, 3, (1,))) * 2 + 1)
+    brain = label > 0
+    f = torch.ones_like(x)                                                     # brightness factor per tissue (CSF, GM, WM, dark, tumor)
+    for cls, (lo, hi) in {L.CSF: (0.85, 1.3), L.GM: (0.8, 1.25), L.WM: (0.8, 1.25), 4: (0.8, 1.2), L.TUMOR: (0.85, 1.2)}.items():
+        f = torch.where(label == cls, u(lo, hi).expand_as(x), f)
+    out = x.clamp(0, 1) * F.avg_pool3d(f, 3, 1, 1)                             # smoothed so tissue borders stay soft
+    out = out.clamp(0, 1) ** u(0.7, 1.5)                                       # global contrast (gamma)
     out = out * u(0.8, 1.2)                                                    # global brightness
     low = torch.randn(b, 1, 4, 4, 4, device=x.device)                          # slow brightness drift (bias field), +-25%
     out = out * (1 + 0.25 * torch.tanh(F.interpolate(low, size=x.shape[2:], mode="trilinear", align_corners=True)))
@@ -112,7 +131,7 @@ def augment_image(x, brain):
             pad = [0, 0, 0, 0, 0, 0]; pad[2 * (4 - ax) + 1] = r; pad[2 * (4 - ax)] = r
             out = F.conv3d(F.pad(out, pad, mode="replicate"), w.view(shape))
     out = out + u(0.0, 0.04) * torch.randn_like(out)                           # noise
-    return out.clamp(0, 1) * brain
+    return out.clamp(0, 1) * brain, label
 
 
 def render_batch(items, device="cpu", tumor_only=False, augment=False):
@@ -120,7 +139,8 @@ def render_batch(items, device="cpu", tumor_only=False, augment=False):
     xs, ls, ps = zip(*(render_item(it, device) for it in items))
     label = torch.stack(ls)[:, None]
     if augment:
-        xs = list(augment_image(torch.stack(xs)[:, None], label > 0)[:, 0])
+        img, label = augment_image(torch.stack(xs)[:, None], label)
+        xs = list(img[:, 0])
     if tumor_only:
         label = (label == L.TUMOR).long()
     return {"image": torch.stack(xs)[:, None], "label": label, "parts": torch.stack(ps)[:, None].long()}

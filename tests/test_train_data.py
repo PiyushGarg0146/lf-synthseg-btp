@@ -97,10 +97,15 @@ def test_scans_found_with_either_nifti_extension(tmp_path):
 
 
 def test_augment_image_keeps_range_and_outside_brain_zero():
-    x = torch.rand(2, 1, 24, 24, 24)
-    brain = torch.zeros(2, 1, 24, 24, 24, dtype=torch.bool)
-    brain[:, :, 4:20, 4:20, 4:20] = True
     from train.data import augment_image
-    y = augment_image(x * brain, brain)
-    assert y.shape == x.shape and y.min() >= 0 and y.max() <= 1
-    assert float(y[~brain].abs().sum()) == 0 and float(y[brain].std()) > 0
+    label = torch.zeros(2, 1, 24, 24, 24, dtype=torch.long)
+    label[:, :, 4:20, 4:20, 4:20] = 3
+    label[:, :, 8:12, 8:12, 8:12] = 1
+    label[:, :, 14:17, 14:17, 14:17] = 5
+    x = torch.rand(2, 1, 24, 24, 24) * (label > 0)
+    for _ in range(6):
+        y, lab = augment_image(x, label)
+        assert y.shape == x.shape and y.min() >= 0 and y.max() <= 1
+        assert float(y[lab == 0].abs().sum()) == 0 and float(y[lab > 0].std()) > 0
+        assert ((lab == 0) == (label == 0)).all() and ((lab == 5) == (label == 5)).all()    # brain and tumor never change
+        assert (lab == 1).sum() >= (label == 1).sum()                                       # CSF can only grow
