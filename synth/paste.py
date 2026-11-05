@@ -17,7 +17,7 @@ from data import labels as L
 from synth import shapes as S
 from synth import tumor as T
 
-SCALE = (0.8, 1.25)
+SCALE = (0.45, 1.3)      # volume changes with the cube: ~0.1x to ~2.2x (the bank alone has few tumors below ~30 mL)
 ROTATE_DEG = 180
 ELASTIC_MM = (0.0, 4.0)
 GAMMA = (0.7, 1.5)
