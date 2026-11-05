@@ -14,6 +14,7 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 import torch
+from scipy import ndimage
 from monai.inferers import sliding_window_inference
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +32,15 @@ def predict_tumor_prob(model, t2, classes, device, roi=96, overlap=0.25, sw_batc
     with torch.autocast(device_type=device, dtype=torch.float16, enabled=device == "cuda"):
         logits = sliding_window_inference(x, (roi,) * 3, sw_batch, model, overlap=overlap)
     prob = torch.softmax(logits.float(), 1)[0]
-    return prob[L.TUMOR if classes == 6 else 1].cpu().numpy(), prob.argmax(0).cpu().numpy()
+    if classes == 8:                                     # NCR / ET / ED (classes 5, 6, 7) -> one tumor class
+        prob = torch.cat([prob[:5], prob[5:].sum(0, keepdim=True)])
+    return prob[L.TUMOR if classes in (6, 8) else 1].cpu().numpy(), prob.argmax(0).cpu().numpy()
+
+
+def largest_component(pred):
+    """Keep only the biggest connected piece of the prediction (removes scattered false-positive specks)."""
+    lab, k = ndimage.label(pred)
+    return lab == (1 + np.bincount(lab.ravel())[1:].argmax()) if k else pred
 
 
 def save_pictures(items, path):
@@ -69,7 +78,7 @@ def main():
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    pics = []
+    pics, rows_lcc = [], []
     cases, rows = sorted(p for p in Path(args.brats).iterdir() if p.is_dir() and find_nifti(p, "t2"))[: args.limit], []
     for d in cases:
         img = nib.load(str(find_nifti(d, "t2")))
@@ -77,10 +86,12 @@ def main():
         gt = np.asarray(nib.load(str(find_nifti(d, "tumor"))).dataobj) > 0
         brain = np.asarray(nib.load(str(find_nifti(d, "mask"))).dataobj) > 0
         prob, arg = predict_tumor_prob(model, t2, classes, dev)
-        pred = (arg == L.TUMOR) if classes == 6 else (prob > 0.5)
+        pred = (arg == L.TUMOR) if classes in (6, 8) else (prob > 0.5)
         r = {"id": d.name, **M.evaluate_case(pred, gt, prob, spacing=img.header.get_zooms()[:3], brain_mask=brain)}
         r["pred_voxels"], r["gt_voxels"] = int(pred.sum()), int(gt.sum())
         rows.append(r)
+        keep = largest_component(pred)
+        rows_lcc.append(M.evaluate_case(keep, gt, prob * keep, spacing=img.header.get_zooms()[:3], brain_mask=brain))
         pics.append((d.name, t2, gt, pred, r["dsc"]))
         nib.save(nib.Nifti1Image(pred.astype(np.uint8), img.affine), str(out / f"pred_{d.name}.nii.gz"))
         print({k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}, flush=True)
@@ -90,9 +101,12 @@ def main():
         w = csv.DictWriter(fh, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
     summary = M.summarize(rows)
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
+    lcc = M.summarize(rows_lcc)
+    (out / "summary_largest_piece.json").write_text(json.dumps(lcc, indent=2))     # extra post-processing, reported separately
     print(f"\n{len(rows)} cases")
     for k, v in summary.items():
         print(f"{k.upper():6s} {v['mean']:.4f} +- {v['std']:.4f}" + (f"  ({v['n_excluded']} excluded: inf/nan)" if v["n_excluded"] else ""))
+    print("with only the largest connected piece kept (extra, reported separately): " + "  ".join(f"{k.upper()} {v['mean']:.4f}" for k, v in lcc.items()))
 
 
 if __name__ == "__main__":

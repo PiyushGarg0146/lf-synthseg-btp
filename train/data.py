@@ -138,13 +138,16 @@ def augment_image(x, label):
     return out.clamp(0, 1) * brain, label
 
 
-def render_batch(items, device="cpu", tumor_only=False, augment=False):
+def render_batch(items, device="cpu", tumor_only=False, augment=False, subregions=False):
     """List of raw items -> dict(image (B,1,D,H,W) float, label (B,1,D,H,W) long, parts (B,1,D,H,W) long)."""
     xs, ls, ps = zip(*(render_item(it, device) for it in items))
     label = torch.stack(ls)[:, None]
     if augment:
         img, label = augment_image(torch.stack(xs)[:, None], label)
         xs = list(img[:, 0])
+    parts = torch.stack(ps)[:, None].long()
     if tumor_only:
         label = (label == L.TUMOR).long()
-    return {"image": torch.stack(xs)[:, None], "label": label, "parts": torch.stack(ps)[:, None].long()}
+    elif subregions:                                          # tumor split into NCR / ET / ED = classes 5 / 6 / 7
+        label = torch.where(label == L.TUMOR, 4 + parts, label)
+    return {"image": torch.stack(xs)[:, None], "label": label, "parts": parts}

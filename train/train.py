@@ -20,6 +20,7 @@ from torch.utils.data import DataLoader
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from train.data import SynthDataset, collate_list, load_scans, render_batch  # noqa: E402
+from train.hier_loss import HierLoss  # noqa: E402
 from train.model import build_model  # noqa: E402
 
 
@@ -34,7 +35,8 @@ def main():
     ap.add_argument("--hcp", required=True)
     ap.add_argument("--bank", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--classes", type=int, choices=(2, 6), default=6, help="6 = LF-SynthSeg (C2: outside-brain 0 + CSF, GM, WM, dark, tumor), 2 = tumor-only (C1)")
+    ap.add_argument("--classes", type=int, choices=(2, 6, 8), default=6, help="6 = LF-SynthSeg (C2: outside-brain 0 + CSF, GM, WM, dark, tumor), 2 = tumor-only (C1), 8 = tumor split into NCR/ET/ED")
+    ap.add_argument("--hier", type=float, default=0.0, help="weight of the hierarchy-aware multi-level loss (0 = off = plain Dice+CE; needs --classes 6 or 8)")
     ap.add_argument("--iters", type=int, default=20000)
     ap.add_argument("--batch", type=int, default=2)
     ap.add_argument("--lr", type=float, default=1e-3)
@@ -55,7 +57,7 @@ def main():
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     model = build_model(args.classes).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
-    loss_fn = DiceCELoss(to_onehot_y=True, softmax=True)
+    loss_fn = HierLoss(args.classes, args.hier) if args.hier > 0 else DiceCELoss(to_onehot_y=True, softmax=True)
     scaler = torch.amp.GradScaler(enabled=dev == "cuda")
     it0 = 0
     ck = out / "latest.pt"
@@ -87,7 +89,7 @@ def main():
         lr = lr_at(it, args.iters, args.lr, args.warmup)
         for g in opt.param_groups:
             g["lr"] = lr
-        b = render_batch(batch, dev, tumor_only=args.classes == 2, augment=not args.no_augment)        # tumor rotation/blending runs on the GPU
+        b = render_batch(batch, dev, tumor_only=args.classes == 2, augment=not args.no_augment, subregions=args.classes == 8)        # tumor rotation/blending runs on the GPU
         x, y = b["image"], b["label"]
         with torch.autocast(device_type=dev, dtype=torch.float16, enabled=dev == "cuda"):
             loss = loss_fn(model(x), y)
