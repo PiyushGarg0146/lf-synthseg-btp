@@ -14,6 +14,7 @@ import torch
 import torch.nn.functional as F
 
 from data import labels as L
+from synth import mass_effect as ME
 from synth import shapes as S
 from synth import tumor as T
 
@@ -72,6 +73,8 @@ def render(entry_t, t2, labels, mask, ctr, params, mu_gm, mu_csf):
     out = F.grid_sample(img, grid, mode="bilinear", padding_mode="zeros", align_corners=True)[0]
     parts = F.grid_sample(entry_t["parts"][None, None], grid, mode="nearest", padding_mode="zeros", align_corners=True)[0, 0].round()
     tum, alpha = out[0], out[1].clamp(0, 1)
+    if params.get("mass"):                                         # mass effect: push the host's tissue away first, then paste
+        t2, labels, mask = ME.apply(t2, labels, mask, (parts > 0) & mask.bool(), params["mass"])
     brain = mask.bool()
     parts = parts * brain
     inside = parts > 0
@@ -86,8 +89,8 @@ def render(entry_t, t2, labels, mask, ctr, params, mu_gm, mu_csf):
     return x, lab, parts.to(torch.uint8)
 
 
-def paste(rng, t2, labels, mask, entry):
-    """Numpy wrapper: paste `entry` (full GRID^3 arrays) at a random brain location (movement).
+def paste(rng, t2, labels, mask, entry, mass=0.0):
+    """Numpy wrapper: paste `entry` (full GRID^3 arrays) at a random brain location (movement); mass > 0 turns mass effect on.
 
     Returns (image, labels, parts) of the full volume, or None if the tumor does not fit in the brain.
     """
@@ -107,7 +110,10 @@ def paste(rng, t2, labels, mask, entry):
     win = lambda v: torch.from_numpy(np.ascontiguousarray(v[src]))
     ctr = [(g - 1) / 2 - d.start for d in dst]                     # tumor-grid centre in window coordinates
     mu_gm, mu_csf = float(t2[labels == L.GM].mean()), float(t2[labels == L.CSF].mean())
-    x, lab, parts_w = render(entry_tensors(entry), win(t2), win(labels).long(), win(mask), ctr, sample_params(rng), mu_gm, mu_csf)
+    params = sample_params(rng)
+    if mass > 0:
+        params["mass"] = ME.sample_mass(rng, mass)
+    x, lab, parts_w = render(entry_tensors(entry), win(t2), win(labels).long(), win(mask), ctr, params, mu_gm, mu_csf)
     out_x, out_lab = t2.copy(), labels.copy()
     out_x[src], out_lab[src] = x.numpy(), lab.numpy().astype(labels.dtype)
     parts = np.zeros(t2.shape, np.uint8)

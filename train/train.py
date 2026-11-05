@@ -43,6 +43,7 @@ def main():
     ap.add_argument("--patch", type=int, default=96)
     ap.add_argument("--ckpt-every", type=int, default=500)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--mass-effect", type=float, default=0.0, help="strength of the mass-effect deformation of the host brain (0 = off = baseline, 1 = default range, 1.5 = stronger)")
     ap.add_argument("--no-augment", action="store_true", help="switch off the whole-image appearance augmentation")
     ap.add_argument("--max-scans", type=int, default=None, help="use only the first N healthy scans (quick tests)")
     ap.add_argument("--max-minutes", type=float, default=None, help="stop (after saving) once this much time has passed")
@@ -67,7 +68,7 @@ def main():
 
     scans = load_scans(args.hcp, args.max_scans)
     print(f"{len(scans)} healthy scans, device {dev}, {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M parameters", flush=True)
-    ds = SynthDataset(scans, args.bank, seed=args.seed + it0, patch=args.patch)
+    ds = SynthDataset(scans, args.bank, seed=args.seed + it0, patch=args.patch, mass=args.mass_effect)
     dl = DataLoader(ds, batch_size=args.batch, num_workers=args.workers, persistent_workers=args.workers > 0, prefetch_factor=4 if args.workers else None, collate_fn=collate_list)
 
     log = out / "log.csv"

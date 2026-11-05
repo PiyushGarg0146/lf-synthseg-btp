@@ -18,6 +18,7 @@ from torch.utils.data import IterableDataset, get_worker_info
 from data import labels as L
 from data.io import find_nifti, load_nifti
 from synth import bank
+from synth import mass_effect as ME
 from synth import paste as P
 from synth import shapes as S
 from synth import tumor as T
@@ -44,7 +45,7 @@ def load_scans(root, limit=None):
     return scans
 
 
-def make_item(rng, scan, raw, patch=PATCH):
+def make_item(rng, scan, raw, patch=PATCH, mass=0.0):
     """Everything needed to render one training sample (numpy only); None if the tumor does not fit the brain."""
     g = S.GRID
     lo = raw["lo"]
@@ -57,17 +58,20 @@ def make_item(rng, scan, raw, patch=PATCH):
     else:
         p = scan["inside"][rng.integers(len(scan["inside"]))]
     p = np.clip(np.round(p), 0, np.array(scan["mask"].shape) - 1).astype(int)
+    params = P.sample_params(rng)
+    if mass > 0:
+        params["mass"] = ME.sample_mass(rng, mass)
     origin = p - patch // 2
     return {"t2": T.crop(scan["t2"], p, patch), "labels": T.crop(scan["labels"], p, patch), "mask": T.crop(scan["mask"], p, patch),
             "raw": raw, "ctr": (g - 1) / 2 - g // 2 + c - origin,       # tumor-grid centre in patch coordinates
-            "params": P.sample_params(rng), "mu_gm": scan["mu_gm"], "mu_csf": scan["mu_csf"]}
+            "params": params, "mu_gm": scan["mu_gm"], "mu_csf": scan["mu_csf"]}
 
 
 class SynthDataset(IterableDataset):
     """Endless stream of raw items (see `make_item`). Each worker has its own random stream (seed, worker id)."""
 
-    def __init__(self, scans, bank_dir, seed=0, patch=PATCH):
-        self.scans, self.files, self.seed, self.patch = scans, bank.list_entries(bank_dir), seed, patch
+    def __init__(self, scans, bank_dir, seed=0, patch=PATCH, mass=0.0):
+        self.scans, self.files, self.seed, self.patch, self.mass = scans, bank.list_entries(bank_dir), seed, patch, mass
         if not self.files:
             raise FileNotFoundError(f"no tumor bank files in {bank_dir}")
 
@@ -76,7 +80,7 @@ class SynthDataset(IterableDataset):
         torch.set_num_threads(1)
         rng = np.random.default_rng([self.seed, info.id if info else 0])
         while True:
-            item = make_item(rng, self.scans[rng.integers(len(self.scans))], bank.load_raw(self.files[rng.integers(len(self.files))]), self.patch)
+            item = make_item(rng, self.scans[rng.integers(len(self.scans))], bank.load_raw(self.files[rng.integers(len(self.files))]), self.patch, self.mass)
             if item is not None:
                 yield item
 
